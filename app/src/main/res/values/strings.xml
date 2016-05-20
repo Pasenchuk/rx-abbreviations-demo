@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">rx-abbreviations-demo</string>
+    <string name="enter_abbreviation">Enter abbreviation</string>
+    <string name="error">Error</string>
 </resources>
