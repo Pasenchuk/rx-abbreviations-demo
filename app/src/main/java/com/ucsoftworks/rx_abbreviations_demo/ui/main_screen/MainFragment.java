@@ -21,7 +21,6 @@ import com.ucsoftworks.rx_abbreviations_demo.R;
 import com.ucsoftworks.rx_abbreviations_demo.app.App;
 import com.ucsoftworks.rx_abbreviations_demo.network.AbbreviationsApi;
 import com.ucsoftworks.rx_abbreviations_demo.network.models.Lf;
-import com.ucsoftworks.rx_abbreviations_demo.network.models.SearchResponse;
 import com.ucsoftworks.rx_abbreviations_demo.ui.base.BaseFragment;
 
 import java.util.ArrayList;
@@ -35,7 +34,6 @@ import butterknife.ButterKnife;
 import rx.Observable;
 import rx.Subscription;
 import rx.android.schedulers.AndroidSchedulers;
-import rx.functions.Func1;
 import rx.schedulers.Schedulers;
 
 /**
@@ -83,29 +81,29 @@ public class MainFragment extends BaseFragment {
         subscription = RxTextView
                 .textChanges(abbreviationEditText)
                 .subscribeOn(AndroidSchedulers.mainThread())
+                .doOnEach(s -> setAdapter(new ArrayList<>())) //при изменении текста очищаем список результатов
                 .debounce(TIMEOUT, TimeUnit.SECONDS) //если пользователь ничего не делал 1 секунду, то обрабатываем результат ввода. В противном случае игнорируем.
-                .observeOn(AndroidSchedulers.mainThread())
-                .filter(s -> { //отсекаем слишком короткие строчки
-                    final boolean b = !TextUtils.isEmpty(s) && s.length() > 1;
-                    if (b) {
-                        setProgressIndicator(View.VISIBLE, View.GONE);
-                    }
-                    return b;
-                })
-                .observeOn(Schedulers.io())//следущее действие отслеживаем в отдельном потоке
+                .filter(s -> !TextUtils.isEmpty(s) && s.length() > 1) //отсекаем слишком короткие строчки
+                .observeOn(AndroidSchedulers.mainThread()) //следующее действие обратываем в главном потоке
+                .doOnEach(s -> setProgressIndicator(View.VISIBLE, View.GONE)) //перед запросом к сети показываем индикатор прогресса
                 .flatMap(s -> abbreviationsApi
-                        .getObservableResponse(s)
-                        .subscribeOn(Schedulers.io()) //работу с сетью и преобразования выполняем в отдельном потоке
+                        .getAbbreviationsResponse(s)
+                        .subscribeOn(Schedulers.io()) //работу с сетью выполняем в отдельном потоке
                         .observeOn(AndroidSchedulers.mainThread()) //результат получаем в главном потоке
-                        .doOnError(MainFragment.this::onError /*вызовется в случае какой-нибудь ошибки */)
-                        .onExceptionResumeNext(Observable.empty())
+                        .doOnError(MainFragment.this::handleError) //вызов метода в случае какой-нибудь ошибки
+                        .onExceptionResumeNext(Observable.empty()) //при ошибке не прерываем цепочку, просто ничего не делаем
                 )
-                .observeOn(AndroidSchedulers.mainThread()) //результат получаем в главном потоке
-                .map((Func1<List<SearchResponse>, List<String>>) searchResponses -> {
-                    Log.d("Rx view", "flatMap List<String>");
-                    if (searchResponses.size() != 1)
-                        return new ArrayList<>();
-
+                .doOnEach(s -> setProgressIndicator(View.GONE, View.VISIBLE)) //после запроса к сети показываем индикатор прогресса
+                .subscribeOn(Schedulers.io()) //промежуточные вычисления и преобразования выполняем в отдельном потоке
+                .filter(searchResponses -> searchResponses.size() == 1)
+                .map(searchResponses -> searchResponses.get(0).getLfs())
+                .map(lfs -> Observable //трансформируем массив типа Lf в массив строк
+                        .from(lfs)
+                        .map(Lf::getLf)
+                        .toList()
+                        .toBlocking()
+                        .first()
+                )
                     /*Классический подход:
                     final List<Lf> lfs = searchResponses.get(0).getLfs();
                     ArrayList<String> strings = new ArrayList<>(lfs.size());
@@ -113,30 +111,18 @@ public class MainFragment extends BaseFragment {
                         strings.add(lf.getLf());
                     return strings;
                     */
-                    
-                    return Observable //трансформируем массив типа Lf в массив строк
-                            .from(searchResponses.get(0).getLfs())
-                            .map(Lf::getLf)
-                            .toList()
-                            .toBlocking()
-                            .first();
-                })
-                .subscribeOn(Schedulers.io()) //работу с сетью и преобразования выполняем в отдельном потоке
                 .observeOn(AndroidSchedulers.mainThread()) //результат получаем в главном потоке
                 .subscribe(
-                        strings -> {
-                            //сюда придут уже преобразованные данные
-                            setProgressIndicator(View.GONE, View.VISIBLE);
-                            Log.d("Rx view", "onNext");
-                            if (isVisible())
-                                listView.setAdapter(getStringArrayAdapter(strings));
-                        },
-                        MainFragment.this::onError /*вызовется в случае какой-нибудь ошибки */,
-                        () -> {
-                            Log.d("Rx view", "onCompleted");//не вызовется, так как в самом первом Observable не вызывается onComplete
-                        }
+                        this::setAdapter, //сюда придут уже преобразованные данные
+                        MainFragment.this::handleError, //вызовется в случае какой-нибудь ошибки
+                        () -> Log.d("Rx view", "onCompleted") //не вызовется, так как в самом первом Observable не вызывается onComplete
                 );
 
+    }
+
+    private void setAdapter(List<String> strings) {
+        if (isVisible())
+            listView.setAdapter(getStringArrayAdapter(strings));
     }
 
     @Override
@@ -153,7 +139,7 @@ public class MainFragment extends BaseFragment {
     }
 
 
-    private void onError(Throwable e) {
+    private void handleError(Throwable e) {
         setProgressIndicator(View.GONE, View.VISIBLE);
         Toast.makeText(getActivity(), R.string.error, Toast.LENGTH_SHORT).show();
         e.printStackTrace();

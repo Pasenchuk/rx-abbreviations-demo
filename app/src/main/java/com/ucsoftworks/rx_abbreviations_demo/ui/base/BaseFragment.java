@@ -14,7 +14,7 @@ import javax.inject.Inject;
 import butterknife.ButterKnife;
 
 /**
- * Created by pasencukviktor on 06/02/16.
+ * Created by pasencukviktor on 06/02/16
  */
 public abstract class BaseFragment extends Fragment {
 
