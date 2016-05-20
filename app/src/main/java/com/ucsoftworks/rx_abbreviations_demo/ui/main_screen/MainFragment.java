@@ -5,9 +5,7 @@ import android.os.Bundle;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.v4.app.Fragment;
-import android.text.Editable;
 import android.text.TextUtils;
-import android.text.TextWatcher;
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -35,7 +33,6 @@ import javax.inject.Inject;
 import butterknife.Bind;
 import butterknife.ButterKnife;
 import rx.Observable;
-import rx.Subscriber;
 import rx.Subscription;
 import rx.android.schedulers.AndroidSchedulers;
 import rx.functions.Func1;
@@ -83,30 +80,11 @@ public class MainFragment extends BaseFragment {
     public void onResume() {
         super.onResume();
 
-        subscription = Observable.create(new Observable.OnSubscribe<String>() {
-            @Override
-            public void call(Subscriber<? super String> subscriber) {
-                abbreviationEditText.addTextChangedListener(new TextWatcher() {
-                    @Override
-                    public void beforeTextChanged(CharSequence charSequence, int i, int i1, int i2) {
-
-                    }
-
-                    @Override
-                    public void onTextChanged(CharSequence charSequence, int i, int i1, int i2) {
-                        subscriber.onNext(charSequence.toString());
-
-                    }
-
-                    @Override
-                    public void afterTextChanged(Editable editable) {
-
-                    }
-                });
-            }
-        })
+        subscription = RxTextView
+                .textChanges(abbreviationEditText)
+                .subscribeOn(AndroidSchedulers.mainThread())
                 .debounce(TIMEOUT, TimeUnit.SECONDS) //если пользователь ничего не делал 1 секунду, то обрабатываем результат ввода. В противном случае игнорируем.
-                .observeOn(AndroidSchedulers.mainThread()) //следующий коллбэк переводим в UI поток (будем изменять Views)
+                .observeOn(AndroidSchedulers.mainThread())
                 .filter(s -> { //отсекаем слишком короткие строчки
                     final boolean b = !TextUtils.isEmpty(s) && s.length() > 1;
                     if (b) {
@@ -115,9 +93,14 @@ public class MainFragment extends BaseFragment {
                     return b;
                 })
                 .observeOn(Schedulers.io())//следущее действие отслеживаем в отдельном потоке
-                .flatMap(s -> abbreviationsApi.getObservableResponse(s))
-                .doOnError(MainFragment.this::onError /*вызовется в случае какой-нибудь ошибки */)
-                .retry()
+                .flatMap(s -> abbreviationsApi
+                        .getObservableResponse(s)
+                        .subscribeOn(Schedulers.io()) //работу с сетью и преобразования выполняем в отдельном потоке
+                        .observeOn(AndroidSchedulers.mainThread()) //результат получаем в главном потоке
+                        .doOnError(MainFragment.this::onError /*вызовется в случае какой-нибудь ошибки */)
+                        .onExceptionResumeNext(Observable.empty())
+                )
+                .observeOn(AndroidSchedulers.mainThread()) //результат получаем в главном потоке
                 .map((Func1<List<SearchResponse>, List<String>>) searchResponses -> {
                     Log.d("Rx view", "flatMap List<String>");
                     if (searchResponses.size() != 1)
