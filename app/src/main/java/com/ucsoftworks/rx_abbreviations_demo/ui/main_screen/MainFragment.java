@@ -116,6 +116,7 @@ public class MainFragment extends BaseFragment {
                 })
                 .observeOn(Schedulers.io())//следущее действие отслеживаем в отдельном потоке
                 .flatMap(s -> abbreviationsApi.getObservableResponse(s))
+                .doOnError(MainFragment.this::onError /*вызовется в случае какой-нибудь ошибки */)
                 .retry()
                 .map((Func1<List<SearchResponse>, List<String>>) searchResponses -> {
                     Log.d("Rx view", "flatMap List<String>");
