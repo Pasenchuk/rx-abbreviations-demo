@@ -105,11 +105,21 @@ public class MainFragment extends BaseFragment {
                     Log.d("Rx view", "flatMap List<String>");
                     if (searchResponses.size() != 1)
                         return new ArrayList<>();
+
+                    /*Классический подход:
                     final List<Lf> lfs = searchResponses.get(0).getLfs();
                     ArrayList<String> strings = new ArrayList<>(lfs.size());
                     for (Lf lf : lfs)
                         strings.add(lf.getLf());
                     return strings;
+                    */
+                    
+                    return Observable //трансформируем массив типа Lf в массив строк
+                            .from(searchResponses.get(0).getLfs())
+                            .map(Lf::getLf)
+                            .toList()
+                            .toBlocking()
+                            .first();
                 })
                 .subscribeOn(Schedulers.io()) //работу с сетью и преобразования выполняем в отдельном потоке
                 .observeOn(AndroidSchedulers.mainThread()) //результат получаем в главном потоке

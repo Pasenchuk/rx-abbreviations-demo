@@ -16,13 +16,13 @@ public class SearchResponse {
     private String sf;
     @SerializedName("lfs")
     @Expose
-    private List<Lf> lfs = new ArrayList<>();
+    private ArrayList<Lf> lfs = new ArrayList<>();
 
     public String getSf() {
         return sf;
     }
 
-    public List<Lf> getLfs() {
+    public ArrayList<Lf> getLfs() {
         return lfs;
     }
 }
